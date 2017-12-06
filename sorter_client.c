@@ -116,12 +116,31 @@ client_socket = socket(AF_INET, SOCK_STREAM, 0);
 
 // initalize  server_address
 
-//connect();
+server_address.sin_family = AF_INET;
+server_address.sin_port = htons(port_num);
+server_address.sin_addr.s_addr = host_name; 		// This initialization doesn't work **********
 
-//	while ( has csv ){
-//		send(unsorted csv);
+// connect 
+
+int connection = connect(client_socket,(struct sockaddr*)&server_address,sizeof(server_address));
+if (connection == -1){
+	printf("failed to connect to sever :(\n");
+	return -1;
+}
+
+// send category over
+send(connection,category,sizeof(category),0);
+
+
+//begin traversing 
+//while ( has csv ){
+//
+//		send(Sort_Request,movie_name);
 //		recv(sorted csv);
 //		doStuff(sorted csv);
+//		t
+//		t
+//		t
 //		}	
 //
 //close socket 
