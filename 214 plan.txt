@@ -1,0 +1,15 @@
+Client Socket
+Traverse the directory
+Find a file that is properly formated CSV file, so that means it needs 28 columns, atleast one row of data
+Open a socket
+Connect to the the port
+Send a sort request in the format "Sort_Request,movie_title"
+then send each line of the following file, one line at a time in the format "<sizeof next>?<sizeofdataline><dataline>"
+example 2?101234567890
+-> dataline is the data in the particular line
+-> the header is the size of the dataline in bytes 
+Then the header size is zero then that means the end of file is reached
+wait and Read a message from the socket stated the file is sorted in the format "File_Sorted"
+
+Once you you complete traverse the entire directory then send a dump request in the format "Dump_Request"
+Then read the sorted file from the socket and write it into a file called AllFiles-sorted-<fieldname>.csv
