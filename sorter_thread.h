@@ -1,7 +1,7 @@
 //SYSTEMS PROGRAMMING PROJECT 2
 
-#ifndef SORTER_H
-#define SORTER_H
+#ifndef SORTER_THREAD_H
+#define SORTER_THREAD_H
 
 #include <stdio.h>
 #include <stdlib.h>
