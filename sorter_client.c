@@ -1,7 +1,12 @@
-//SYSTEMS PROGRAMMING PROJECT 2
+//SYSTEMS PROGRAMMING PROJECT 3
 
 #include "sorter_thread.h"
-
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 //Thread_Node * head_thread;
 pthread_mutex_t thread_count_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -247,27 +252,26 @@ int is_csv(char * s1){
 	}
 }
 
+char* category = NULL;
 int main(int argc, char ** argv) {
-    pthread_t tid;		//will hold tid temporaily of spawned threads
-    int i = 0;			//iterator
-	int areThreads = 1;	//used in while loop 
-	totalThreadCount = 0;
-	char typeFlag;
+
 	char * input_dir_name = malloc(2*sizeof(char));//input_dir_name holds the name of the input directory
-	char * output_dir_name = malloc(2*sizeof(char));;//output_dir_name holds the name of the output directory
-	char * csvHeader = "color,director_name,num_critic_for_reviews,duration,director_facebook_likes,actor_3_facebook_likes,actor_2_name,actor_1_facebook_likes,gross,genres,actor_1_name,movie_title,num_voted_users,cast_total_facebook_likes,actor_3_name,facenumber_in_poster,plot_keywords,movie_imdb_link,num_user_for_reviews,language,country,content_rating,budget,title_year,actor_2_facebook_likes,imdb_score,aspect_ratio,movie_facebook_likes";
-	char * outFileName;
-	FILE * outFilePtr;
-	DIR * dir;
-	
-	
-	head = NULL;
-	
+	char * output_dir_name = malloc(2*sizeof(char));//output_dir_name holds the name of the output directory
+	char * host_name = NULL;
+	char * port_number = NULL;	
+	int port_num;
+	int client_socket;
+	int i,j,k;
+	struct sockaddr_in server_address;
+	char typeFlag;
+	Thread_Args * enter_dir_args;
+
+	// traverse commandline to initialize variables
 	if (
-		( argc == 3 && strcmp(argv[1], "-c") != 0 )
-			|| ( argc != 3 &&
-				argc != 5 &&
-					argc != 7  ) ){
+			( argc == 7 && strcmp(argv[1], "-c") != 0 )
+			|| ( argc != 7 &&
+				argc != 9 &&
+				argc != 11  ) ){
 		printf("incorrect input, please enter paramaters as follows\n");
 		printf("./sorter -c <catagory> -d <input directory> -o <output directory>\n");
 		printf("NOTE: -d <input directory> & -o <output directory> are optional and can be given in either order\n");
@@ -295,7 +299,6 @@ int main(int argc, char ** argv) {
 			if(strcmp(input_dir_name,".") != 0){
 				printf("incorrect input, please input only one starting directory.\n");
 				return -1;
-		
 			}
 			input_dir_name = realloc(input_dir_name, (strlen(argv[i+1])+1)*sizeof(char) );
 			strcpy(input_dir_name, argv[i+1]);
@@ -314,12 +317,31 @@ int main(int argc, char ** argv) {
 			continue;
 
 		}
-		//argv[1] || argv[3] || argv[5}  are something other than -c , -d , or -o	
-		printf("incorrect input, please enter paramaters as follows\n");
-		printf("./sorter -c <catagory> -d <input directory> -o <output directory>\n");
-		printf("NOTE: -d <input directory> & -o <output directory> are optional and can be given in either order\n");
-		return -1;
-	}//end for-loop (initialized inputdir, outputdir, and category)
+		if(strcmp(argv[i],"-h") == 0){
+			//if duplicate -h <host_name> input given, print error
+			//otherwise initialize
+			if(host_name != NULL){
+				printf("incorrect input, please input only one host name.\n");
+				return -1;
+			}
+			host_name = malloc( (strlen(argv[i+1])+1)*sizeof(char) );	
+			strcpy(host_name, argv[i+1]);
+			continue;
+		}	
+		if(strcmp(argv[i],"-p") == 0){
+			//if duplicate -p <port_number> input given, print error
+			//otherwise initialize
+			if(port_number != NULL){
+				printf("incorrect input, please input only one port number.\n");
+				return -1;
+			}
+			port_number = malloc( (strlen(argv[i+1])+1)*sizeof(char) );	
+			strcpy(port_number, argv[i+1]);
+			continue;
+		}	
+	}//end for-loop (initialized inputdir, outputdir, category, hostname and port number)
+	
+	//Check validity of arguments---------------------------------------------------------
 	if( category == NULL ){
 		printf("incorrect input, -c <category> parameters required.\n");
 		return -1;
@@ -343,8 +365,10 @@ int main(int argc, char ** argv) {
         return -1;
 	}
 	closedir(dir);
+	//end of validity check-----------------------------------------------------------------
 	
-    Thread_Args * enter_dir_args = malloc(sizeof(Thread_Args) );
+	//prepare arguments for enter_directory function----------------------------------------
+    enter_dir_args = malloc(sizeof(Thread_Args) );
     if(enter_dir_args == NULL){
 				fprintf(stderr, "enter_dir_args (in main) malloc failed\n");
 				exit(0);
@@ -364,6 +388,7 @@ int main(int argc, char ** argv) {
     strcpy(enter_dir_args->path, input_dir_name);
     strcpy(enter_dir_args->entry_name, "//");
     free(input_dir_name);
+    //finished preparing arguments----------------------------------------------------------
     
     outFileName = malloc ( (64 + strlen(output_dir_name))*sizeof(char));
     strcpy(outFileName, output_dir_name);
@@ -374,26 +399,53 @@ int main(int argc, char ** argv) {
     //printf("enter->path[%s]\n",enter_dir_args->path);
 	//printf("entry_name[%s]\n",enter_dir_args->entry_name);
     //printf("outFileName[%s]\n", outFileName);
-         
-    printf("initial PID: %d\n", getpid());
-    printf("TIDs of all child threads:\n"); 
-    enter_directory(enter_dir_args);
-    
-	printf("Total number of threads: %d\n", totalThreadCount);
-    
-    if(head == NULL){
-		return;
-	}
-    
     //head = forceMerge(head, typeFlag);
-    outFilePtr = fopen(outFileName, "w");
-	fprintf(outFilePtr, "%s\n", csvHeader);
 	/*
 	for (i=0;i<head->length;i++){
 		//fprintf(outFilePtr, "\n[%s]\n", head->data[i]->key);
 		fprintf(outFilePtr, "%s", head->data[i]->wholerow);
 	}
 	*/
+	port_num = atoi(port_number);
+	free(port_number);
+	//create socket
+
+	client_socket = socket(AF_INET, SOCK_STREAM, 0);
+
+	// initalize  server_address
+
+	server_address.sin_family = AF_INET;
+	server_address.sin_port = htons(port_num);
+	server_address.sin_addr.s_addr = host_name; 		// This initialization doesn't work **********
+
+	// connect 
+
+	int connection = connect(client_socket,(struct sockaddr*)&server_address,sizeof(server_address));
+	if (connection == -1){
+		printf("failed to connect to sever :(\n");
+		return -1;
+	}
+
+	// send category over
+	send(connection,category,sizeof(category),0);
+
+
+	//begin traversing 
+	//while ( has csv ){
+	//
+	//		send(Sort_Request,movie_name);
+	//		recv(sorted csv);
+	//		doStuff(sorted csv);
+	//		t
+	//		t
+	//		t
+	//		}	
+	//
+	//close socket 
+	close(client_socket);
+	free(host_name);
+	free(input_dir_name);
+	free(output_dir_name);
+	free(category);
+	return 0;
 }
-
-
