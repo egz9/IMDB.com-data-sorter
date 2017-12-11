@@ -257,14 +257,16 @@ int main(int argc, char ** argv) {
 
 	char * input_dir_name = malloc(2*sizeof(char));//input_dir_name holds the name of the input directory
 	char * output_dir_name = malloc(2*sizeof(char));//output_dir_name holds the name of the output directory
+	char * outFileName;
 	char * host_name = NULL;
 	char * port_number = NULL;	
+	char typeFlag;
 	int port_num;
 	int client_socket;
 	int i,j,k;
 	struct sockaddr_in server_address;
-	char typeFlag;
 	Thread_Args * enter_dir_args;
+	DIR * dir;
 
 	// traverse commandline to initialize variables
 	if (
@@ -273,7 +275,7 @@ int main(int argc, char ** argv) {
 				argc != 9 &&
 				argc != 11  ) ){
 		printf("incorrect input, please enter paramaters as follows\n");
-		printf("./sorter -c <catagory> -d <input directory> -o <output directory>\n");
+		printf("%s -c <catagory> -h <host name> -p <port number> -d <input directory> -o <output directory>\n", argv[0]);
 		printf("NOTE: -d <input directory> & -o <output directory> are optional and can be given in either order\n");
 		return -1;
 	}
