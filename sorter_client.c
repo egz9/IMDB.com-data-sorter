@@ -87,10 +87,9 @@ void * sendcsv(Thread_Args * args){
 		encLine = encode_wholerow(line);
 		write(sockfd, encLine, strlen(encLine) );
 		free(encLine);
-		
-		printf("\n");
-		
+		//printf("\n");
 	} 
+	write(sockfd, "0?", 2);
     
     close(csvfd);
 	//wait for confirmation
