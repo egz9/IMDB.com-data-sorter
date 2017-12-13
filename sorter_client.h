@@ -23,6 +23,7 @@ typedef struct{
 typedef struct thread_args{
 	char * path;
 	char * entry_name;
+	int socketfd;
 }Thread_Args;
 
 typedef struct thread_node{
