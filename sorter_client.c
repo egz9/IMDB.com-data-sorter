@@ -1,18 +1,105 @@
 //SYSTEMS PROGRAMMING PROJECT 3
 
-#include "sorter_thread.h"
+#include "sorter_client.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <errno.h>
+#include <arpa/inet.h> 
 
 //Thread_Node * head_thread;
 pthread_mutex_t thread_count_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t csv_node_lock = PTHREAD_MUTEX_INITIALIZER;
 char * category;
 int totalThreadCount;
+
+
+char * encode_wholerow(char * wholerow){
+	//***may want to trim wholerow later
+	//char * str_size = malloc(6 * sizeof(char));			//size of wholerow
+	//char * str_size_size = malloc(2 * sizeof(char));	//size of (size of wholerow)
+	char str_size[6];
+	char str_size_size[2];
+	char wholerowCpy[ strlen(wholerow) + 1 ];
+	char * wholerow_encoding = NULL;
+	char * cPtr;	
+	strcpy(wholerowCpy, wholerow);
+	cPtr = wholerowCpy;				
+	if (*(cPtr + (strlen(wholerowCpy)-1)) == '\n' )
+		*(cPtr + (strlen(wholerowCpy)-1)) = '\0';
+	
+	
+	//this section prints out each array position & its corresponding char
+	/*
+	int i = 0;
+	for (i = 0; i <= strlen(wholerowCpy); i++){
+		if (i % 8 == 0){
+			printf("\n[%4d] = %c ", i, wholerowCpy[i]);
+			continue;
+		}
+		printf("[%4d] = %c ", i, wholerowCpy[i]);
+	}
+	printf("\n");
+	fflush(stdout);
+	*/
+	sprintf(str_size, "%d", (int)strlen(wholerowCpy) );
+	sprintf(str_size_size, "%d", (int)strlen(str_size) );
+	
+	//wholerow encoding will be formated as follows
+	//<sizeof(sizeof wholerow)><sizeof wholerow><wholerow>
+	//here we malloc an extra 2 bytes to account for \0 and ?
+	wholerow_encoding = 
+		malloc( strlen(str_size) + strlen(str_size_size) + strlen(wholerowCpy) + 2);
+	sprintf(wholerow_encoding, "%s?%s%s", str_size_size, str_size, wholerowCpy);
+	
+	
+	
+	return wholerow_encoding;
+}
+
+void * sendcsv(Thread_Args * args){
+	char * csvpath = (char*)malloc( strlen( args->path) + strlen(args->entry_name) + 3); 
+	if (csvpath == NULL){
+		fprintf(stderr, "csvpath malloc failed\n");
+		exit(0);
+	}
+	sprintf(csvpath, "%s/%s", args->path, args->entry_name);
+	int sockfd = args->socketfd;
+	free(args->path);
+	free(args->entry_name);
+	free(args);
+	
+	int csvfd = open(csvpath, O_RDONLY);
+	FILE * fp;
+	char line[1500];
+	char confirmation[14]; //meseage will be "Complete_Sort"
+	char * encLine;
+	
+	fp = fopen(csvpath, "r");
+    while( fgets(line, 1500*sizeof(char), fp) !=NULL ){
+		encLine = encode_wholerow(line);
+		write(sockfd, encLine, strlen(encLine) );
+		free(encLine);
+		
+		printf("\n");
+		
+	} 
+    
+    close(csvfd);
+	//wait for confirmation
+	while( strcmp(confirmation, "Complete_Sort") != 0 ){
+		read(sockfd, confirmation, sizeof(confirmation) );
+		confirmation[13] = '\0';
+	}
+	return NULL;
+}
 
 // given a tid, addtid adds a new thread_node containing said tid to
 // the thread node linked list
@@ -30,30 +117,7 @@ Thread_Node * addtid(pthread_t tid, Thread_Node * headThread){
 	return headThread;
 }
 
-char * encode_wholerow(char * wholerow){
-	//***may want to trim wholerow later
-	char * str_size = malloc(6 * sizeof(char));			//size of wholerow
-	char * str_size_size = malloc(2 * sizeof(char));	//size of (size of wholerow)
-	char * wholerow_encoding;							//will hold final encoding
-	
-	sprintf(str_size, "%d", (int)strlen(wholerow) + 1);
-	sprintf(str_size_size, "%d", (int)strlen(str_size) );
-	
-	//wholerow encoding will be formated as follows
-	//<sizeof(sizeof wholerow)><sizeof wholerow><wholerow>
-	//here we malloc an extra 2 bytes to account for \0 and ?
-	wholerow_encoding = 
-		malloc(strlen(str_size) + strlen(str_size_size) + strlen(wholerow) + 2);
-	sprintf(wholerow_encoding, "%s?%s%s", str_size_size, str_size, wholerow);
-	
-	return wholerow_encoding;
-}
 
-void * send_csv(char * csv_path){
-	
-	
-	
-}
  
 /* enter directory is a function intended for multithreading situations.
  * you must pass it a Thread_Args struct which will contain the name of 
@@ -65,6 +129,7 @@ void * send_csv(char * csv_path){
 void * enter_directory(Thread_Args * args){
 	//dirpath will hold {(parent directory path)/(current directory)}
 	//printf("in enter_direcory. args->path: [%s], args->entry_name: [%s]\n", args->path, args->entry_name);
+	int sockfd = args->socketfd;
 	DIR * current_dir;
 	struct dirent *entry;
 	Thread_Node * headThread;
@@ -126,7 +191,7 @@ void * enter_directory(Thread_Args * args){
 			//printf("load enter_dir_args with path[%s] & name[%s]\n", dirpath, (char*)entry->d_name);
 			strcpy(enter_dir_args->path, dirpath);
 			strcpy(enter_dir_args->entry_name, (char*)entry->d_name);
-			
+			enter_dir_args->socketfd = sockfd;
 			//printf("creating new thread for [%s]\n", (char*)entry->d_name);
 			pthread_create(&tid, NULL, (void*)enter_directory, (void*)enter_dir_args);
 			//printf("Adding tid %d\n", tid);
@@ -155,6 +220,7 @@ void * enter_directory(Thread_Args * args){
 			}
 			strcpy(sortcsv_args->path, dirpath);
 			strcpy(sortcsv_args->entry_name, (char*)entry->d_name);
+			sortcsv_args->socketfd = sockfd;
 			
 			//check first line*******************************************************************
 			char * csvpath = (char*)malloc( strlen( dirpath) + strlen(entry->d_name) + 3); 
@@ -193,9 +259,9 @@ void * enter_directory(Thread_Args * args){
 				continue;
 			}//first line check over.**********************************************************
 			
-			//-----------------------prepare data in file for transport-----------------------\\
-			
-			
+			//-----------------------prepare data in file for transport-----------------------
+			pthread_create(&tid, NULL, (void*)sendcsv, (void*)sortcsv_args);
+			headThread = addtid(tid, headThread);
 			
 			
 			//printf("spawing sort thread for [%s]\n", entry->d_name);
@@ -209,7 +275,7 @@ void * enter_directory(Thread_Args * args){
 		}
 	}
 	
-	//joins
+	//joins---------------------------------------------------------------
 	Thread_Node * temp = headThread;
 	int threadCount = 0;
 	temp = headThread;
@@ -225,6 +291,8 @@ void * enter_directory(Thread_Args * args){
 	pthread_mutex_unlock(&thread_count_lock);
 	//printf("returning from directory %s\n", dirpath);
 	closedir(current_dir);
+	
+	
 	return NULL; 
 }
  
@@ -259,7 +327,8 @@ int main(int argc, char ** argv) {
 	char * output_dir_name = malloc(2*sizeof(char));//output_dir_name holds the name of the output directory
 	char * outFileName;
 	char * host_name = NULL;
-	char * port_number = NULL;	
+	char * port_number = NULL;
+	char * megaString;	
 	char typeFlag;
 	int port_num;
 	int client_socket;
@@ -267,6 +336,7 @@ int main(int argc, char ** argv) {
 	struct sockaddr_in server_address;
 	Thread_Args * enter_dir_args;
 	DIR * dir;
+	FILE * outFilePtr;
 
 	// traverse commandline to initialize variables
 	if (
@@ -366,6 +436,7 @@ int main(int argc, char ** argv) {
 		fprintf(stderr, "ERROR: directory [%s] not found\n", input_dir_name);
         return -1;
 	}
+	
 	closedir(dir);
 	//end of validity check-----------------------------------------------------------------
 	
@@ -386,7 +457,6 @@ int main(int argc, char ** argv) {
 				fprintf(stderr, "enter_dir_args->entry_name (in main) malloc failed\n");
 				exit(0);
 	}
-	
     strcpy(enter_dir_args->path, input_dir_name);
     strcpy(enter_dir_args->entry_name, "//");
     free(input_dir_name);
@@ -413,12 +483,12 @@ int main(int argc, char ** argv) {
 	//create socket
 
 	client_socket = socket(AF_INET, SOCK_STREAM, 0);
-
+	enter_dir_args->socketfd = client_socket;
 	// initalize  server_address
 
 	server_address.sin_family = AF_INET;
 	server_address.sin_port = htons(port_num);
-	server_address.sin_addr.s_addr = host_name; 		// This initialization doesn't work **********
+	server_address.sin_addr.s_addr = inet_addr(host_name); 		
 
 	// connect 
 
@@ -430,20 +500,19 @@ int main(int argc, char ** argv) {
 
 	// send category over
 	send(connection,category,sizeof(category),0);
-
-
-	//begin traversing 
-	//while ( has csv ){
-	//
-	//		send(Sort_Request,movie_name);
-	//		recv(sorted csv);
-	//		doStuff(sorted csv);
-	//		t
-	//		t
-	//		t
-	//		}	
-	//
-	//close socket 
+	
+	enter_directory(enter_dir_args); 
+	
+	//	send dump request,
+	//	server will send filesize of dump
+	//	then they will send the dump
+	//	dump is loaded into megaString
+	//	megastring is printed into outFile
+	// 	done
+	
+	outFilePtr = fopen(outFileName, "w");
+	fprintf(outFilePtr, megaString);
+	
 	close(client_socket);
 	free(host_name);
 	free(input_dir_name);
