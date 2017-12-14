@@ -1,239 +1,199 @@
-/* SYSTEMS PROGRAMMING PROJECT 3
- * Authors: Alex Vargas
- * Eric Zimmerman
- */
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include "sorter_server.h"
 
-#include "sorter_thread.h"
-
-//trim takes a string and removes any trailing or leading whitespace
-char * trim(char *str){
-	size_t len = 0;
-	char *fptr = str; //front pointer
-	char *eptr = NULL;//end pointer
-
-	if( str == NULL ) { 
-		return NULL; 
-	}
-	if( str[0] == '\0' ) { 
-		return str; 
-	}
-	
-	len = strlen(str);
-	//brings endp to null byte
-	eptr = str + len;
-
-	/* This moves the front and back pointers to the address of the first 
-	 * non-whitespace chars from each end.
-	 */
-	while(isspace((unsigned char)*fptr) || *fptr == '"' || (unsigned char)*fptr > 127) { 
-		fptr++; 
-	}
-	if( eptr != fptr ){
-		eptr--;
-		while( (isspace((unsigned char) *(eptr)) || *eptr == '"' || (unsigned char)*eptr > 127) && eptr != fptr ) {
-			
-			eptr--;
-		}
-	}
-	//this puts null byte at end of string to eliminate traling whitespace
-	//printf("*eptr= [%c]", *eptr );
-	if( str + len - 1 != eptr ){
-		//printf("*(eptr+1) = %c", *(eptr+1) );
-		*(eptr + 1) = '\0';
-	}
-	else if( fptr != str &&  eptr == fptr ){
-		*str = '\0';
-	}
-	/* Shift the string so that it starts at str.This is so if it's dynamically
-	 * allocated, it can still be freed on the returned pointer 
-	 * eptr means the front of the string buffer now.
-	 */
-	eptr = str;
-	if( fptr != str ) {
-		/*once fptr reaches the null terminator
-		 * we have successfully shifted the string
-		 */
-		while( *fptr ) { 
-			*eptr = *fptr; 
-			eptr++;
-			fptr++;
-		}
-		*eptr = '\0';
-	}
-	return str;
-}
-
-
-void merge( int left, int mid, int right, rowtype** arr, char typeFlag ){
-	int sizeL =(mid-left)+1;
-	int sizeR = right-mid;
-
-	rowtype* L[sizeL];
-	rowtype* R[sizeR];
-
-	int i;
-	for(i=0;i<sizeL;i++)
-		L[i] = arr[left+i];
-	for (i=0; i<sizeR;i++)
-		R[i] = arr[mid+1+i];
-
-	int l_count=0;
-	int r_count=0;
-	int j = 0;
-	while(l_count<sizeL && r_count<sizeR)
-	{
-		if( typeFlag == 's' || typeFlag == 'S'){
-			int result = strcmp(L[l_count]->key, R[r_count]->key);
-			if(result <=0)
-			{
-				*(arr+left+j) = L[l_count];
-				l_count++;
-			}
-			else
-			{
-				*(arr+left+j)=R[r_count];
-				r_count++;
-			}
-			j++;
-		}
-
-		else if( typeFlag == 'n' || typeFlag == 'N'){
-			double  result = (atof((L[l_count])->key) - atof((R[r_count])->key));
-			if(result <=0.0)
-			{
-				*(arr+left+j) = L[l_count];
-				l_count++;
-			}
-			else
-			{
-				*(arr+left+j)= R[r_count];
-				r_count++;
-			}
-			j++;
-		}
-	}
-
-	if(l_count==sizeL)
-	{
-		while(r_count<sizeR)
-		{
-			*(arr+left+j) = R[r_count];
-			r_count++;
-			j++;
-		}
-	}
-	if(r_count==sizeR)
-	{
-		while(l_count<sizeL)
-		{
-			*(arr+left+j) = L[l_count];
-			l_count++;
-			j++;
-		}
-	}
-}
-
-void sort( int left, int right, rowtype** arr, char typeFlag)
+void mergesort(Node ** headNode, int columnIndex, int dataType)
 {
-	if (right>left)
-	{	
-		int mid = (right+left)/2;
+	//printf("SUP BRO, I MADE IT INTO MERGESORT!! WHATTUP?\n");
+	Node * head = *headNode;
+	Node * a;
+	Node * b;
 
-		sort(left, mid, arr, typeFlag);
-		sort(mid+1, right, arr, typeFlag);
-
-		merge( left, mid, right, arr, typeFlag);
+	//Base Case
+	if ((head == NULL) || (head->next == NULL))
+	{
+		//printf("GUESS I WAS NULL AFTERALL, WHO KNEW\n");
+		return;
 	}
+
+	//Split the list into 'a' and 'b' sublists
+	
+	FrontBackSplit(head, &a, &b);
+
+	//printf("frontbacksplit ok\n");
+
+	//Recursively sort the sublists
+	
+	//printf("a->data: %s\tb->data: %s\n", a->data[columnIndex], b->data[columnIndex]);
+	mergesort(&a, columnIndex, dataType);
+	mergesort(&b, columnIndex, dataType);
+
+	//merge the two sorted lists into one complete sorted list
+	
+	if(dataType == 1)
+	{
+		*headNode = numSortedMerge(a, b, columnIndex);	//was head = (returned unsorted list missing the last entry)
+	}else{
+		*headNode = strSortedMerge(a, b, columnIndex);	//with change, returns only one row but it is the correct first row when sorted
+	}
+	//printf("Sorted merge ok\n");
 }
 
-/*
-//the main here is just for testing purposes
-int main(){
+Node* numSortedMerge(Node * a, Node * b, int columnIndex)
+{
 
-	//char lines[1000];
-	//printf("input\n");
-	//fgets(lines,1000,stdin);
-	//printf("B4: [%s]\n",lines);
-	//printf("AF: [%s]\n",trim(lines));
+	Node * result; // = (Node *)malloc(sizeof(Node)); //was NULL
 	
-	
-	char * str = (char*)malloc(200);
-	char * strs[50];
-	char * temp;
-	int i = 0;
-	strcpy(str,"where,,dank,,be,");
-	const char c = ','; 
-	temp = strsep(&str, &c);
-	do{
-		strs[i] = malloc(64*sizeof(char));
-		strcpy(strs[i], temp);
-		printf("temp: %s\n", temp);
-		i++;
-	}while(temp = (strsep(&str,&c)) );
-	int len = i-1;
-	for (i=0;i<=len;i++){
-		printf("%s\n", strs[i]);
-	}
-	
-	int high = 16;
-	int low = 0;
-	i = 0;
-	//
-	
-	char *testStrings[] =
-    {
-            "nothing to trim",
-            "    trim the front",
-            "trim the back     ",
-            " trim one char front and back ",
-            " trim one char front",
-            "trim one char back ",
-            "                   ",
-            " ",
-            
-            "aaa",
-            "Ccc",
-            "BBB",
-            "bbb",
-            "ccc",
-            "AAA",
-            "dDD",
-            "Ddd",
-            "ddD",
-           
-    };  
-    
-	rowtype * recordArr[high+1];
-	for (i=low; i<=high; i++){
-		//printf("about to malloc [%d] wholerow\n", i);
-		recordArr[i] = (rowtype*)malloc(sizeof(rowtype)); // ************** //
-		recordArr[i]->wholerow = (char*)malloc( 64 * sizeof(char) );
-		recordArr[i]->key = 		(char*)malloc( 64 * sizeof(char) );
-		strcpy(recordArr[i]->wholerow, testStrings[i]);
-		strcpy(recordArr[i]->key, testStrings[i]);
-		trim(recordArr[i]->key);
-		//printf("input wholerow [%d]\n",i);
-		//scanf("%s", recordArr[i].wholerow);
-		//printf("input key [%d]\n",i);
-		//scanf("%s", recordArr[i].key);
-		printf("[%d]wholerow: [%s], key: [%s]\n",i,recordArr[i]->wholerow,recordArr[i]->key);
+	//printf("Before base case check!");
+
+	//Base Case
 		
-	}
-	printf("BEFORE\n");
-	for(i=low; i<=high; i++){
-		printf("[%d]wholerow: [%s], key: [%s]\n",i,recordArr[i]->wholerow,recordArr[i]->key);
-	}
-	//rowtype * ptr1 = &recordArr[0];
-	//rowtype ** ptr2 = &ptr1;
-	sort(low, high, recordArr,'s');
-	
-	printf("\nAFTER\n");
-	for(i=low;i<=high;i++){
-		printf("[%d]wholerow: [%s], key: [%s]\n",i,recordArr[i]->wholerow,recordArr[i]->key);
-		free(recordArr[i]->wholerow);
-		free(recordArr[i]->key);
+	if (a == NULL)
+	{
+		result = b;
+		return result;		//added return to stop function front quitting here and just printing the one row of data, now seg faults below
+	}else if (b == NULL)
+	{
+		result = a;
+		return result;
 	}
 	
-	return 0;
+	//printf("a: %s vs b: %s\n", a->data[columnIndex], b->data[columnIndex]);
+	//compare the data from each list and merge
+	
+	int aval = atoi(a->data[columnIndex]);
+	int bval = atoi(b->data[columnIndex]);
+	//printf("aval = %d, bval = %d\n", aval, bval);
+	if (aval <= bval)
+	{
+	//	printf("a smaller than b\n");
+		result = a;
+		//result->next = (Node *)malloc(sizeof(Node));
+		
+		if (b != NULL && a->next != NULL)
+		{
+			result->next = numSortedMerge(a->next, b, columnIndex);
+		}
+		else
+		{
+			result->next = numSortedMerge(NULL, b, columnIndex);
+		}
+
+	}else{
+	//	printf("b smaller than a\n");
+		result = b;
+	//	printf("result = b\n");
+		//result->next = (Node *)malloc(sizeof(Node));
+		/*if ( result->next == NULL)
+		{
+			printf("error allocating mem for result->next\n");
+		}*/
+		
+		if (a != NULL && b->next != NULL)
+		{
+			result->next = numSortedMerge(a, b->next, columnIndex);
+		}
+		else
+		{
+	//		printf("something was NULL afterall\n");
+			result->next = numSortedMerge(a, NULL, columnIndex);
+		}
+	}	
+	//printf("result: %s\n", result->data[columnIndex]);	
+	return result;
+	
 }
-*/
+
+Node* strSortedMerge(Node * a, Node * b, int columnIndex)
+{
+
+	Node * result; // = (Node *)malloc(sizeof(Node));// NULL;
+
+	//Base Case
+	if (a == NULL)
+	{
+		return(b);
+	}
+	else if (b == NULL)
+	{
+		return(a);
+	}
+
+	//compare the data from each list and merge
+	
+	if (strcmp(a->data[columnIndex], b->data[columnIndex])<= 0)
+	{
+
+		result = a;
+		//result->next = (Node *)malloc(sizeof(Node));
+		if (a->next != NULL)
+		{
+			result->next = strSortedMerge(a->next, b, columnIndex);
+		}
+		else
+		{
+			result->next = strSortedMerge(NULL, b, columnIndex);
+		}
+	}else{
+	
+		result = b;
+		//result->next = (Node *)malloc(sizeof(Node));
+		if (b->next != NULL)
+		{
+			result->next = strSortedMerge(a, b->next, columnIndex);
+		}
+		else
+		{
+			result->next = strSortedMerge(a, NULL, columnIndex);
+		}
+	}
+
+	return (result);
+}
+
+//Split the list into 2 separate lists
+
+void FrontBackSplit(Node * headNode, Node ** frontNode, Node ** backNode)
+{
+	if(headNode == NULL || headNode->next == NULL)
+	{
+		*frontNode = headNode;
+		*backNode = NULL;
+		return;
+	}else if(headNode->next->next == NULL)
+	{
+		*frontNode = headNode;
+		*backNode = headNode->next;
+		headNode->next = NULL;
+		return;
+	}else{
+		
+		Node * ptr = headNode;
+		int count = 0;
+		while( ptr != NULL)
+		{
+			count++;
+			ptr = ptr -> next;
+		}
+	//	printf("count = %d\n", count);
+
+		int midpoint = count/2;
+	//	printf("midpoint = %d\n", midpoint);
+		//Node * front = headNode;
+		*frontNode = headNode;
+		Node * back = headNode;
+		int i;
+		for(i = 0; i < midpoint && back != NULL ; i++)
+		{
+	//		printf("split ptr moved\n");
+			back = back->next;
+		}
+		
+	//	printf("frontNode: %s\n", headNode->data[3]);
+		*backNode = back->next;
+		//printf("backNode: %s\n", back->next->data[3]);
+		back->next = NULL;	//separate the 2 lists
+	}
+}
+
