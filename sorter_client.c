@@ -1,25 +1,30 @@
 //SYSTEMS PROGRAMMING PROJECT 3
 
 #include "sorter_client.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <netdb.h>
-#include <unistd.h>
-#include <errno.h>
-#include <arpa/inet.h> 
 
 //Thread_Node * head_thread;
 pthread_mutex_t thread_count_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t csv_node_lock = PTHREAD_MUTEX_INITIALIZER;
-char * category;
+char * category = NULL;
+char * sort_request;
 int totalThreadCount;
 
+
+// given a tid, addtid adds a new thread_node containing said tid to
+// the thread node linked list
+Thread_Node * addtid(pthread_t tid, Thread_Node * headThread){
+	//printf("in addtid\n");
+	Thread_Node * newNode = (Thread_Node *)malloc(sizeof (Thread_Node) );
+	if (newNode == NULL){
+		fprintf(stderr, "newNode malloc failed\n");
+		exit(0);
+	}
+	newNode->tid = tid;
+	//printf("Adding tid %d\n", tid);
+	newNode->next = headThread;
+	headThread = newNode;
+	return headThread;
+}
 
 char * encode_wholerow(char * wholerow){
 	//***may want to trim wholerow later
@@ -79,13 +84,18 @@ void * sendcsv(Thread_Args * args){
 	int csvfd = open(csvpath, O_RDONLY);
 	FILE * fp;
 	char line[1500];
-	char confirmation[14]; //meseage will be "Complete_Sort"
+	char confirmation[500]; //meseage will be "Complete_Sort"
+	memset(confirmation, 0, sizeof(confirmation) );
 	char * encLine;
+	ssize_t writtenBytes = 0;
 	
 	fp = fopen(csvpath, "r");
+	printf("sending sr: [%s]\n", sort_request);
+	write( sockfd, sort_request, strlen(sort_request) );
     while( fgets(line, 1500*sizeof(char), fp) !=NULL ){
 		encLine = encode_wholerow(line);
-		write(sockfd, encLine, strlen(encLine) );
+		writtenBytes = write(sockfd, encLine, strlen(encLine) );
+		printf("sendt %d bytes \n%s\n\n", writtenBytes, encLine);
 		free(encLine);
 		//printf("\n");
 	} 
@@ -93,30 +103,13 @@ void * sendcsv(Thread_Args * args){
     
     close(csvfd);
 	//wait for confirmation
-	while( strcmp(confirmation, "Complete_Sort") != 0 ){
+	while( strstr(confirmation, "Complete_Sort") == NULL ){
 		read(sockfd, confirmation, sizeof(confirmation) );
-		confirmation[13] = '\0';
+		printf("confirmation string: [%s]\n", confirmation);
+		sleep(2);
 	}
 	return NULL;
 }
-
-// given a tid, addtid adds a new thread_node containing said tid to
-// the thread node linked list
-Thread_Node * addtid(pthread_t tid, Thread_Node * headThread){
-	//printf("in addtid\n");
-	Thread_Node * newNode = (Thread_Node *)malloc(sizeof (Thread_Node) );
-	if (newNode == NULL){
-		fprintf(stderr, "newNode malloc failed\n");
-		exit(0);
-	}
-	newNode->tid = tid;
-	//printf("Adding tid %d\n", tid);
-	newNode->next = headThread;
-	headThread = newNode;
-	return headThread;
-}
-
-
  
 /* enter directory is a function intended for multithreading situations.
  * you must pass it a Thread_Args struct which will contain the name of 
@@ -294,32 +287,8 @@ void * enter_directory(Thread_Args * args){
 	
 	return NULL; 
 }
- 
-/* is_csv takes a string s1 and determines
- * if the last 4 characters are ".csv" indicating
- * whether or not the string represents a csv file
- * or not. It returns 1 if the string has the ".csv"
- * extension and 0 otherwise */
-int is_csv(char * s1){
-	char * ptr = strrchr(s1, '.');
-	int i;
-    if(!ptr){
-		return 0;
-	}
-	else {
-		ptr++;
-		if ( (*ptr == 'c' || *ptr == 'C') &&
-		   (*(ptr+1) == 's' ||*(ptr+1) == 'S' ) && 
-		   (*(ptr+2) == 'v' || *(ptr+2) == 'V' )&& 
-		   (*(ptr+3) == '\0') ){
-			//printf("Success\n");
-			return 1;
-		}
-		return 0;
-	}
-}
 
-char* category = NULL;
+//char* category = NULL;
 int main(int argc, char ** argv) {
 
 	char * input_dir_name = malloc(2*sizeof(char));//input_dir_name holds the name of the input directory
@@ -461,6 +430,12 @@ int main(int argc, char ** argv) {
     free(input_dir_name);
     //finished preparing arguments----------------------------------------------------------
     
+    //set sort_request. Each thread will send this to server
+    //+5 to account for header (x?xx) and null byte
+    sort_request = malloc( strlen("Sort_Request,") + strlen(category) + 5);
+    sprintf(sort_request, "Sort_Request,%s", category);
+    sort_request = encode_wholerow(sort_request);
+    
     outFileName = malloc ( (64 + strlen(output_dir_name))*sizeof(char));
     strcpy(outFileName, output_dir_name);
     strcat(outFileName, "/Allfiles-sorted-");
@@ -478,29 +453,73 @@ int main(int argc, char ** argv) {
 	}
 	*/
 	port_num = atoi(port_number);
-	free(port_number);
+	//free(port_number);
+	
+	printf("port_num: %d\n", port_num);
 	//create socket
 
-	client_socket = socket(AF_INET, SOCK_STREAM, 0);
-	enter_dir_args->socketfd = client_socket;
+	
+	
 	// initalize  server_address
-
+/*
 	server_address.sin_family = AF_INET;
 	server_address.sin_port = htons(port_num);
 	server_address.sin_addr.s_addr = inet_addr(host_name); 		
+*/
 
-	// connect 
-
+	struct addrinfo hints;
+	struct addrinfo *result, *rp;
+	int s;
+	
+	memset(&hints, 0, sizeof(struct addrinfo));
+	 hints.ai_family 	= AF_INET;
+	 hints.ai_socktype 	= SOCK_STREAM;
+	 hints.ai_protocol 	= 0;
+	 hints.ai_flags 	= 0;
+	 
+	
+	s = getaddrinfo(host_name, port_number, &hints, &result);
+	if ( s != 0){
+		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
+		exit(EXIT_FAILURE);
+	}
+	
+	//get addrinfo returns a list of address structures
+	//so here we go through list and stop once we establish
+	//a connection
+	for (rp = result; rp != NULL; rp = rp->ai_next){
+		client_socket = socket(rp->ai_family, rp->ai_socktype,
+							   rp->ai_protocol);
+		if (client_socket == -1)
+			continue;
+		
+		if (connect(client_socket, rp->ai_addr, rp->ai_addrlen) != -1)
+			break;		//success
+		
+		close(client_socket);
+		
+	}
+	if (rp == NULL){
+		fprintf(stderr, "Could not connect\n");
+		exit(EXIT_FAILURE);
+	}
+	
+	freeaddrinfo(result); //no longer needed
+/*
+	// connect
 	int connection = connect(client_socket,(struct sockaddr*)&server_address,sizeof(server_address));
 	if (connection == -1){
 		printf("failed to connect to sever :(\n");
 		return -1;
 	}
-
-	// send category over
-	send(connection,category,sizeof(category),0);
+*/
+	// send category over. DONT USE THIS
+	//send(client_socket, category, sizeof(category), 0);
 	
+	enter_dir_args->socketfd = client_socket;
 	enter_directory(enter_dir_args); 
+	
+	
 	
 	//	send dump request,
 	//	server will send filesize of dump
