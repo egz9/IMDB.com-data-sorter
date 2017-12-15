@@ -151,8 +151,16 @@ void * request(void * sock_info)
 	//Lets assume the first message will be a request
 	char * data;
 	data = extract(sockfd, &buffer);
-	//fprintf(stdout,"data = %s\n", data);
-	//fprintf(stdout,"buffer = %s\n\n", buffer);
+
+//data[24] = '\0';
+//fprintf(stdout,">>data = %s\n", data);
+//fprintf(stdout,"buffer = %s\n\n", buffer);
+//char target[20];
+//strcpy(target, "Sort_Request");
+//fprintf(stdout,"strstr on data for sr: [%s] should be %s\n", strstr(data, "Sort_Request") );
+//fprintf(stdout, "data[%s]: \n", data );
+//fflush(stdout);
+
 	if(strstr(data, "Sort_Request") != NULL)
 	{
 		char * temp = strchr(data, ',');
@@ -202,7 +210,7 @@ void * request(void * sock_info)
 			//if we couldn't write to the server for some reason, complain and exit
 			if (written < 0)
 			{
-				perror("ERROR writing to socket");
+				perror("**ERROR writing to socket");
 				exit(0);
 			}
 		
@@ -234,12 +242,15 @@ void * request(void * sock_info)
 	else
 	{
 		//not supposed to go here
-		printf("error\n");
+		printf("error A\n");
 	}
 	//printf("done with request method\n");
 	//shutdown(sockfd,SHUT_WR);
 	free(buffer);
 	close(sockfd);
+	
+	sleep(5);
+	
 	pthread_exit(0);
 }
 //////////////////////////////////////////
@@ -251,9 +262,11 @@ char * extract(int sockfd, char ** buffer){
 	bzero(data,capacity);
 	memcpy(data, *buffer, capacity);
 	readed = strlen(data);
+	//printf("intital len of data %d\n", strlen(data));
 	if(readed==0)
 	{
 		readed = read(sockfd,data+readed, capacity-readed) + readed;
+		//printf("data first read [%s]\n", data);
 		if(readed < 0)
 		{
 			perror("Error reading from socket");
@@ -315,7 +328,8 @@ char * extract(int sockfd, char ** buffer){
 	int size = 0;
 	size = atoi(size_of_data);
 	//fprintf(stdout, "sizeofHeader= %d\tsizeofdata= %d\n", sizeOfHeader,size);
-	char line[500];
+	//char line[500]; old version
+	char * line = malloc(500 * sizeof(char) );
 	j = 0;
 	//fprintf(stdout,"SIZEOFDATA= %d\tlengthOfData= %d\treaded= %d\n", size, (int)strlen(data),readed);
 	int nbuf = size;
@@ -366,6 +380,7 @@ char * extract(int sockfd, char ** buffer){
 	
 	while(i < capacity)
 	{
+		//printf("in temp while\n");
 		if(data[i] == '\n')
 		{
 			i++;
@@ -376,7 +391,7 @@ char * extract(int sockfd, char ** buffer){
 		i++;
 	}
 	temp[j] = '\0';
-	//	fprintf(stdout, "temp [%s]\n", temp);
+	//fprintf(stdout, "temp [%s]\n", temp);
 	memcpy(*buffer, temp,500);
 	//fprintf(stdout,"EXTRACT: BUF [%s]\n", *buffer);
 	char * ptr = line;
