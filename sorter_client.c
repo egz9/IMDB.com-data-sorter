@@ -4,10 +4,13 @@
 
 //Thread_Node * head_thread;
 pthread_mutex_t thread_count_lock = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t csv_node_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t slock = 			PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t csv_node_lock = 	PTHREAD_MUTEX_INITIALIZER;
 char * category = NULL;
 char * sort_request;
 int totalThreadCount;
+struct addrinfo *result, *rp;
+struct addrinfo hints;
 
 
 // given a tid, addtid adds a new thread_node containing said tid to
@@ -89,13 +92,36 @@ void * sendcsv(Thread_Args * args){
 	char * encLine;
 	ssize_t writtenBytes = 0;
 	
+	pthread_mutex_lock(&slock);
+	
+	for (rp = result; rp != NULL; rp = rp->ai_next){
+		sockfd = socket(rp->ai_family, rp->ai_socktype,
+							   rp->ai_protocol);
+		if (sockfd == -1)
+			continue;
+		
+		if (connect(sockfd, rp->ai_addr, rp->ai_addrlen) != -1)
+			break;		//success
+		
+		close(sockfd);
+		
+	}
+	if (rp == NULL){
+		fprintf(stderr, "Could not connect\n");
+		exit(EXIT_FAILURE);
+	}
+	
+	
+	
+	
 	fp = fopen(csvpath, "r");
-	printf("sending sr: [%s]\n", sort_request);
+	//printf("sending sr: [%s]\n", sort_request);
 	write( sockfd, sort_request, strlen(sort_request) );
+	fgets(line, 1500*sizeof(char), fp); //skip first line 
     while( fgets(line, 1500*sizeof(char), fp) !=NULL ){
 		encLine = encode_wholerow(line);
 		writtenBytes = write(sockfd, encLine, strlen(encLine) );
-		printf("sendt %d bytes \n%s\n\n", writtenBytes, encLine);
+		//printf("sent %d bytes \n%s\n\n", writtenBytes, encLine);
 		free(encLine);
 		//printf("\n");
 	} 
@@ -105,9 +131,11 @@ void * sendcsv(Thread_Args * args){
 	//wait for confirmation
 	while( strstr(confirmation, "Complete_Sort") == NULL ){
 		read(sockfd, confirmation, sizeof(confirmation) );
-		printf("confirmation string: [%s]\n", confirmation);
+		//printf("confirmation string: [%s]\n", confirmation);
 		sleep(2);
 	}
+	
+	pthread_mutex_unlock(&slock);
 	return NULL;
 }
  
@@ -273,7 +301,7 @@ void * enter_directory(Thread_Args * args){
 	temp = headThread;
 	while(temp){
 		threadCount++;
-		printf("%d\n", temp->tid);
+		//printf("%d\n", temp->tid);
 		pthread_join(temp->tid, NULL);
 		//add in delete later
 		temp = temp->next;
@@ -455,9 +483,10 @@ int main(int argc, char ** argv) {
 	port_num = atoi(port_number);
 	//free(port_number);
 	
-	printf("port_num: %d\n", port_num);
+	//printf("port_num: %d\n", port_num);
 	//create socket
-
+	
+	
 	
 	
 	// initalize  server_address
@@ -467,8 +496,8 @@ int main(int argc, char ** argv) {
 	server_address.sin_addr.s_addr = inet_addr(host_name); 		
 */
 
-	struct addrinfo hints;
-	struct addrinfo *result, *rp;
+	
+	
 	int s;
 	
 	memset(&hints, 0, sizeof(struct addrinfo));
@@ -483,6 +512,25 @@ int main(int argc, char ** argv) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
 		exit(EXIT_FAILURE);
 	}
+	
+	//get addrinfo returns a list of address structures
+	//so here we go through list and stop once we establish
+	//a connection
+
+	//freeaddrinfo(result); //no longer needed
+/*
+	// connect
+	int connection = connect(client_socket,(struct sockaddr*)&server_address,sizeof(server_address));
+	if (connection == -1){
+		printf("failed to connect to sever :(\n");
+		return -1;
+	}
+*/
+	// send category over. DONT USE THIS
+	//send(client_socket, category, sizeof(category), 0);
+	
+	enter_dir_args->socketfd = client_socket;
+	enter_directory(enter_dir_args); 
 	
 	//get addrinfo returns a list of address structures
 	//so here we go through list and stop once we establish
@@ -504,33 +552,105 @@ int main(int argc, char ** argv) {
 		exit(EXIT_FAILURE);
 	}
 	
-	freeaddrinfo(result); //no longer needed
-/*
-	// connect
-	int connection = connect(client_socket,(struct sockaddr*)&server_address,sizeof(server_address));
-	if (connection == -1){
-		printf("failed to connect to sever :(\n");
-		return -1;
-	}
-*/
-	// send category over. DONT USE THIS
-	//send(client_socket, category, sizeof(category), 0);
-	
-	enter_dir_args->socketfd = client_socket;
-	enter_directory(enter_dir_args); 
-	
-	
-	
 	//	send dump request,
 	//	server will send filesize of dump
 	//	then they will send the dump
 	//	dump is loaded into megaString
 	//	megastring is printed into outFile
 	// 	done
-	
 	outFilePtr = fopen(outFileName, "w");
-	fprintf(outFilePtr, megaString);
+	fprintf(outFilePtr, "color,director_name,num_critic_for_reviews,duration,director_facebook_likes,actor_3_facebook_likes,actor_2_name,actor_1_facebook_likes,gross,genres,actor_1_name,movie_title,num_voted_users,cast_total_facebook_likes,actor_3_name,facenumber_in_poster,plot_keywords,movie_imdb_link,num_user_for_reviews,language,country,content_rating,budget,title_year,actor_2_facebook_likes,imdb_score,aspect_ratio,movie_facebook_likes\n");
 	
+	int bytesSent = write(client_socket, "2?12Dump_Request", 16);
+	//printf("sent %d for dump\n", bytesSent);
+	char* current_Data = NULL;
+	int numRead = 1;
+	char buf[500];
+	int sizeHeader;
+	int wholeRowSize;
+	int offset = 0;
+	while (numRead>0){
+		numRead = read(client_socket, buf+offset, 500-offset) + offset;
+		//printf("numread = %d\n",numRead);
+		//printf("buf first 10: [%.20s]\n", buf);
+		if(numRead == 0 && offset == 0){
+			break;
+		}
+		offset = 0;
+		int i = 0;
+		char header[2];
+		while (i<2){	
+			header[i] = buf[i];
+			//printf("header[%d] = %c\n", i, header[i]);
+			if(buf[i] == '?'){
+				header[i]= '\0';
+				i++;
+				break;
+			}
+			i++;
+		}
+		
+		
+		//printf("header %s\n", header);
+		sizeHeader = 0;
+		sizeHeader = atoi(header);
+		if(sizeHeader == 0){
+			printf("End of file\n");
+			break;
+		}
+		int j = 0;
+		char numData[sizeHeader +1];
+		while (j<sizeHeader){
+			//printf("j<sizeHeader\n");
+			numData[j]= buf[i];
+			j++;
+			i++;
+		}
+		
+		numData[j]= '\0';
+		//printf("numData = %s\n", numData);
+		wholeRowSize = 0;
+		wholeRowSize = atoi(numData);
+		current_Data = realloc(current_Data, wholeRowSize*sizeof(char)+1);
+		if (current_Data == NULL){
+			fprintf(stderr, "current_Data realloc failed\n");
+		}
+		memset(current_Data, 0, sizeof(current_Data));
+		
+		
+		if(wholeRowSize>=numRead-i){
+			//printf("wholeRowSize>=numRead-i\n");
+			memcpy(current_Data, buf+i, numRead-i);
+			while(wholeRowSize>numRead-i){
+				numRead += read(client_socket, current_Data+(numRead-i), wholeRowSize-numRead);
+				printf("while wholerowsize > numread-i\nnumread = %d\ncurr_data %s\n",
+				numRead, current_Data);
+			}
+			current_Data[wholeRowSize] = '\0';
+			//printf("writing [%s] to file\n", current_Data);
+			fprintf(outFilePtr,"%s\n",current_Data);
+			offset = 0;
+		}
+		
+		if (numRead-i>wholeRowSize){
+			//printf("numRead-i>wholeRowSize\n");
+			memcpy(current_Data,buf+i,wholeRowSize); 
+			current_Data[wholeRowSize] = '\0';
+			//printf("writing [%s] to file\n", current_Data);
+			fprintf(outFilePtr,"%s\n",current_Data);
+			char temp[500];
+			memcpy(temp, buf+i+wholeRowSize,500-(wholeRowSize+i));
+			//printf("temp: [%s]\n", temp);
+			fflush(stdout);
+			memset(buf, 0, sizeof(current_Data));
+			memcpy(buf,temp,500);
+			offset = 500-(i+wholeRowSize); //*** size of good chunck
+		}
+	}
+	
+	
+	
+	fclose(outFilePtr);
 	close(client_socket);
 	free(host_name);
 	free(input_dir_name);
